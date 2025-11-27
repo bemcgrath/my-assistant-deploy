@@ -342,6 +342,28 @@ const AppDataProvider = ({ children }) => {
       return { success: false, error: 'Network error' };
     }
   }, [getValidAccessToken]);
+  
+  // Fetch single email by ID
+  const fetchEmailById = useCallback(async (emailId) => {
+    const token = await getValidAccessToken();
+    if (!token) return { email: null, error: 'Not authenticated' };
+    
+    try {
+      const response = await fetch(`/api/google/email/${emailId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        return { email: null, error: error.error || 'Failed to fetch email' };
+      }
+      
+      return await response.json();
+    } catch (e) {
+      console.error('Email fetch error:', e);
+      return { email: null, error: 'Network error' };
+    }
+  }, [getValidAccessToken]);
 
   const value = {
     // User profile
@@ -367,6 +389,7 @@ const AppDataProvider = ({ children }) => {
     googleLogout,
     fetchCalendarEvents,
     fetchEmails,
+    fetchEmailById,
     sendEmail,
     
     // Utilities
@@ -1668,9 +1691,87 @@ const EmailItem = ({ email, onSelect, isSelected }) => (
         </p>
         <p className="text-xs text-gray-400 truncate mt-0.5">{email.preview}</p>
       </div>
+      <ChevronRight className="w-4 h-4 text-gray-300 mt-2" />
     </div>
   </button>
 );
+
+// Email Viewer Modal
+const EmailViewerModal = ({ email, fullEmail, isLoading, error, onClose, onReply }) => {
+  if (!email) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div 
+        className="bg-white w-full max-w-2xl rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center text-white font-semibold">
+              {email.from?.charAt(0)?.toUpperCase() || '?'}
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900">{email.from}</p>
+              <p className="text-xs text-gray-500">{fullEmail?.fromEmail || email.fromEmail || ''}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        
+        {/* Subject & Date */}
+        <div className="px-4 py-3 border-b border-gray-100 flex-shrink-0">
+          <h2 className="font-semibold text-gray-900 text-lg">{email.subject}</h2>
+          <p className="text-sm text-gray-500 mt-1">{fullEmail?.date || email.time}</p>
+        </div>
+        
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+            </div>
+          ) : error ? (
+            <div className="text-center py-12">
+              <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-2" />
+              <p className="text-gray-600">{error}</p>
+            </div>
+          ) : fullEmail?.isHtml ? (
+            <div 
+              className="prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: fullEmail.body }}
+            />
+          ) : (
+            <div className="whitespace-pre-wrap text-gray-700 text-sm leading-relaxed">
+              {fullEmail?.body || email.preview}
+            </div>
+          )}
+        </div>
+        
+        {/* Actions */}
+        <div className="p-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
+          <button 
+            onClick={() => onReply && onReply(email)}
+            className="flex-1 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl hover:opacity-90 flex items-center justify-center gap-2"
+          >
+            <Reply className="w-4 h-4" />
+            Reply
+          </button>
+          <button className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 flex items-center justify-center gap-2">
+            <Forward className="w-4 h-4" />
+            Forward
+          </button>
+          <button className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200">
+            <Archive className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // User Preferences Panel
 const PreferencesPanel = ({ preferences, onUpdate, onClose }) => {
@@ -1889,7 +1990,7 @@ const ChatInterface = ({ agentName, agentColor, messages, onSendMessage, placeho
 // ============================================
 
 const PersonalAssistantView = () => {
-  const { personalAssistant, updatePersonalAssistant, healthCoach, googleAuth, googleLogin, googleLogout, fetchCalendarEvents, fetchEmails, sendEmail } = useAppData();
+  const { personalAssistant, updatePersonalAssistant, healthCoach, googleAuth, googleLogin, googleLogout, fetchCalendarEvents, fetchEmails, fetchEmailById, sendEmail } = useAppData();
   
   const [activeTab, setActiveTab] = useState('overview');
   const [showPreferences, setShowPreferences] = useState(false);
@@ -1905,6 +2006,35 @@ const PersonalAssistantView = () => {
   const [emails, setEmails] = useState([]);
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
   const [googleError, setGoogleError] = useState(null);
+  
+  // Email viewer state
+  const [selectedEmail, setSelectedEmail] = useState(null);
+  const [fullEmail, setFullEmail] = useState(null);
+  const [isLoadingEmail, setIsLoadingEmail] = useState(false);
+  const [emailError, setEmailError] = useState(null);
+  
+  // Handle email selection
+  const handleEmailSelect = async (email) => {
+    setSelectedEmail(email);
+    setFullEmail(null);
+    setIsLoadingEmail(true);
+    setEmailError(null);
+    
+    const result = await fetchEmailById(email.id);
+    
+    if (result.error) {
+      setEmailError(result.error);
+    } else {
+      setFullEmail(result.email);
+    }
+    setIsLoadingEmail(false);
+  };
+  
+  const handleCloseEmailViewer = () => {
+    setSelectedEmail(null);
+    setFullEmail(null);
+    setEmailError(null);
+  };
   
   // Fetch Google data when authenticated
   useEffect(() => {
@@ -2333,13 +2463,40 @@ const PersonalAssistantView = () => {
                   {emails.filter(e => !e.read).length} unread
                 </span>
               </div>
-              <button className="p-2 hover:bg-gray-100 rounded-lg">
-                <RefreshCw className="w-4 h-4 text-gray-400" />
+              <button 
+                onClick={loadGoogleData}
+                disabled={isLoadingGoogle}
+                className="p-2 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 text-gray-400 ${isLoadingGoogle ? 'animate-spin' : ''}`} />
               </button>
             </div>
-            {emails.map(email => (
-              <EmailItem key={email.id} email={email} />
-            ))}
+            {emails.length > 0 ? (
+              emails.map(email => (
+                <EmailItem 
+                  key={email.id} 
+                  email={email} 
+                  onSelect={handleEmailSelect}
+                  isSelected={selectedEmail?.id === email.id}
+                />
+              ))
+            ) : googleAuth ? (
+              <div className="p-8 text-center">
+                <Mail className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                <p className="text-gray-500">No emails found</p>
+              </div>
+            ) : (
+              <div className="p-8 text-center">
+                <Mail className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                <p className="text-gray-500 mb-3">Connect Google to see your emails</p>
+                <button 
+                  onClick={googleLogin}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600"
+                >
+                  Connect Google
+                </button>
+              </div>
+            )}
           </div>
           
           {/* Quick Actions */}
@@ -2354,6 +2511,17 @@ const PersonalAssistantView = () => {
             </button>
           </div>
         </div>
+      )}
+      
+      {/* Email Viewer Modal */}
+      {selectedEmail && (
+        <EmailViewerModal
+          email={selectedEmail}
+          fullEmail={fullEmail}
+          isLoading={isLoadingEmail}
+          error={emailError}
+          onClose={handleCloseEmailViewer}
+        />
       )}
       
       {activeTab === 'calendar' && (
