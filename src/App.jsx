@@ -349,7 +349,7 @@ const AppDataProvider = ({ children }) => {
     if (!token) return { email: null, error: 'Not authenticated' };
     
     try {
-      const response = await fetch(`/api/google/email/${emailId}`, {
+      const response = await fetch(`/api/google/email-detail?id=${emailId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
