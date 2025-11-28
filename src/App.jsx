@@ -1773,6 +1773,152 @@ const EmailViewerModal = ({ email, fullEmail, isLoading, error, onClose, onReply
   );
 };
 
+// Compose Email Modal
+const ComposeEmailModal = ({ isOpen, onClose, onSend, replyTo, isSending }) => {
+  const [to, setTo] = useState('');
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [error, setError] = useState(null);
+  
+  // Pre-fill fields when replying
+  useEffect(() => {
+    if (replyTo) {
+      setTo(replyTo.fromEmail || replyTo.from || '');
+      setSubject(replyTo.subject?.startsWith('Re:') ? replyTo.subject : `Re: ${replyTo.subject || ''}`);
+      
+      // Create quoted reply body
+      const quotedBody = `\n\n---\nOn ${replyTo.date || 'earlier'}, ${replyTo.from || 'someone'} wrote:\n> ${(replyTo.body || replyTo.preview || '').split('\n').join('\n> ')}`;
+      setBody(quotedBody);
+    } else {
+      setTo('');
+      setSubject('');
+      setBody('');
+    }
+    setError(null);
+  }, [replyTo, isOpen]);
+  
+  const handleSend = async () => {
+    if (!to.trim()) {
+      setError('Please enter a recipient');
+      return;
+    }
+    if (!subject.trim()) {
+      setError('Please enter a subject');
+      return;
+    }
+    
+    setError(null);
+    const result = await onSend(to, subject, body, replyTo?.threadId);
+    
+    if (result.success) {
+      onClose();
+    } else {
+      setError(result.error || 'Failed to send email');
+    }
+  };
+  
+  if (!isOpen) return null;
+  
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div 
+        className="bg-white w-full max-w-2xl rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 flex-shrink-0">
+          <h3 className="font-semibold text-gray-900">
+            {replyTo ? 'Reply' : 'New Email'}
+          </h3>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+        
+        {/* Form */}
+        <div className="flex-1 overflow-y-auto">
+          {/* To Field */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-500 w-16">To:</label>
+              <input
+                type="email"
+                value={to}
+                onChange={e => setTo(e.target.value)}
+                placeholder="recipient@example.com"
+                className="flex-1 text-sm text-gray-900 outline-none bg-transparent"
+              />
+            </div>
+          </div>
+          
+          {/* Subject Field */}
+          <div className="px-4 py-3 border-b border-gray-100">
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-500 w-16">Subject:</label>
+              <input
+                type="text"
+                value={subject}
+                onChange={e => setSubject(e.target.value)}
+                placeholder="Email subject"
+                className="flex-1 text-sm text-gray-900 outline-none bg-transparent"
+              />
+            </div>
+          </div>
+          
+          {/* Body Field */}
+          <div className="p-4">
+            <textarea
+              value={body}
+              onChange={e => setBody(e.target.value)}
+              placeholder="Write your message..."
+              rows={12}
+              className="w-full text-sm text-gray-900 outline-none resize-none bg-transparent"
+            />
+          </div>
+        </div>
+        
+        {/* Error Message */}
+        {error && (
+          <div className="px-4 py-2 bg-red-50 border-t border-red-100">
+            <p className="text-sm text-red-600 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              {error}
+            </p>
+          </div>
+        )}
+        
+        {/* Actions */}
+        <div className="p-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
+          <button 
+            onClick={handleSend}
+            disabled={isSending}
+            className="flex-1 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl hover:opacity-90 flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {isSending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                Send
+              </>
+            )}
+          </button>
+          <button 
+            onClick={onClose}
+            disabled={isSending}
+            className="px-6 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // User Preferences Panel
 const PreferencesPanel = ({ preferences, onUpdate, onClose }) => {
   const [localPrefs, setLocalPrefs] = useState(preferences);
@@ -2013,6 +2159,11 @@ const PersonalAssistantView = () => {
   const [isLoadingEmail, setIsLoadingEmail] = useState(false);
   const [emailError, setEmailError] = useState(null);
   
+  // Compose email state
+  const [showCompose, setShowCompose] = useState(false);
+  const [replyToEmail, setReplyToEmail] = useState(null);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+  
   // Handle email selection
   const handleEmailSelect = async (email) => {
     setSelectedEmail(email);
@@ -2028,6 +2179,35 @@ const PersonalAssistantView = () => {
       setFullEmail(result.email);
     }
     setIsLoadingEmail(false);
+  };
+  
+  // Handle reply
+  const handleReply = (email) => {
+    // Use fullEmail if available (has more data), otherwise use the basic email
+    setReplyToEmail(fullEmail || email);
+    setSelectedEmail(null); // Close the viewer
+    setShowCompose(true);
+  };
+  
+  // Handle send email
+  const handleSendEmail = async (to, subject, body, threadId) => {
+    setIsSendingEmail(true);
+    const result = await sendEmail(to, subject, body, threadId);
+    setIsSendingEmail(false);
+    
+    if (result.success) {
+      setToast({ message: 'Email sent!', type: 'success' });
+      setShowCompose(false);
+      setReplyToEmail(null);
+    }
+    
+    return result;
+  };
+  
+  // Handle new email
+  const handleNewEmail = () => {
+    setReplyToEmail(null);
+    setShowCompose(true);
   };
   
   const handleCloseEmailViewer = () => {
@@ -2505,9 +2685,12 @@ const PersonalAssistantView = () => {
               <Sparkles className="w-4 h-4 text-blue-500" />
               <span className="text-sm">Summarize Unread</span>
             </button>
-            <button className="flex items-center justify-center gap-2 p-3 bg-white rounded-xl shadow-sm border border-gray-100 text-gray-700 hover:bg-gray-50">
+            <button 
+              onClick={handleNewEmail}
+              className="flex items-center justify-center gap-2 p-3 bg-white rounded-xl shadow-sm border border-gray-100 text-gray-700 hover:bg-gray-50"
+            >
               <Edit3 className="w-4 h-4 text-blue-500" />
-              <span className="text-sm">Draft New Email</span>
+              <span className="text-sm">Compose Email</span>
             </button>
           </div>
         </div>
@@ -2521,8 +2704,18 @@ const PersonalAssistantView = () => {
           isLoading={isLoadingEmail}
           error={emailError}
           onClose={handleCloseEmailViewer}
+          onReply={handleReply}
         />
       )}
+      
+      {/* Compose Email Modal */}
+      <ComposeEmailModal
+        isOpen={showCompose}
+        onClose={() => { setShowCompose(false); setReplyToEmail(null); }}
+        onSend={handleSendEmail}
+        replyTo={replyToEmail}
+        isSending={isSendingEmail}
+      />
       
       {activeTab === 'calendar' && (
         <div className="space-y-4">
