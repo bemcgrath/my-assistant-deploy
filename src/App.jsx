@@ -1788,7 +1788,7 @@ const EmailViewerModal = ({ email, fullEmail, isLoading, error, onClose, onReply
             <Reply className="w-4 h-4" />
             Reply
           </button>
-          {!email.read && (
+          {!(fullEmail?.read ?? email.read) && (
             <button
               onClick={() => onMarkAsRead && onMarkAsRead(email)}
               className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 flex items-center justify-center gap-2"
