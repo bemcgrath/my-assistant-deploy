@@ -38,7 +38,12 @@ export default async function handler(req, res) {
         Authorization: `Bearer ${tokens.access_token}`,
       },
     });
-    
+
+    if (!userResponse.ok) {
+      console.error('Failed to fetch user info:', userResponse.status, userResponse.statusText);
+      return res.redirect('/?auth_error=failed_to_fetch_user_info');
+    }
+
     const user = await userResponse.json();
     
     // Create a simple encrypted token to store in the browser
