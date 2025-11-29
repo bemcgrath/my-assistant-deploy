@@ -84,7 +84,10 @@ export default async function handler(req, res) {
     // Format date
     const dateStr = getHeader('Date');
     const date = new Date(dateStr);
-    
+
+    // Check if read
+    const isRead = !msg.labelIds?.includes('UNREAD');
+
     const email = {
       id: msg.id,
       threadId: msg.threadId,
@@ -92,15 +95,16 @@ export default async function handler(req, res) {
       fromEmail,
       to: getHeader('To'),
       subject: getHeader('Subject') || '(No subject)',
-      date: date.toLocaleString('en-US', { 
+      date: date.toLocaleString('en-US', {
         weekday: 'short',
-        month: 'short', 
+        month: 'short',
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
       }),
       body: emailBody,
       isHtml: !!htmlBody,
+      read: isRead,
       labelIds: msg.labelIds || [],
     };
     
