@@ -342,22 +342,22 @@ const AppDataProvider = ({ children }) => {
       return { success: false, error: 'Network error' };
     }
   }, [getValidAccessToken]);
-  
+
   // Fetch single email by ID
   const fetchEmailById = useCallback(async (emailId) => {
     const token = await getValidAccessToken();
     if (!token) return { email: null, error: 'Not authenticated' };
-    
+
     try {
       const response = await fetch(`/api/google/email-detail?id=${emailId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         return { email: null, error: error.error || 'Failed to fetch email' };
       }
-      
+
       return await response.json();
     } catch (e) {
       console.error('Email fetch error:', e);
@@ -365,24 +365,51 @@ const AppDataProvider = ({ children }) => {
     }
   }, [getValidAccessToken]);
 
+  // Mark email as read
+  const markEmailAsRead = useCallback(async (emailId) => {
+    const token = await getValidAccessToken();
+    if (!token) return { success: false, error: 'Not authenticated' };
+
+    try {
+      const response = await fetch('/api/google/mark-read', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emailId }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        return { success: false, error: error.error || 'Failed to mark email as read' };
+      }
+
+      return await response.json();
+    } catch (e) {
+      console.error('Mark email as read error:', e);
+      return { success: false, error: 'Network error' };
+    }
+  }, [getValidAccessToken]);
+
   const value = {
     // User profile
     userProfile,
     setUserProfile,
-    
+
     // Agent data
     personalAssistant: personalAssistantData,
     updatePersonalAssistant,
-    
+
     healthCoach: healthCoachData,
     updateHealthCoach,
-    
+
     financial: financialData,
     updateFinancial,
-    
+
     learning: learningData,
     updateLearning,
-    
+
     // Google Auth
     googleAuth,
     googleLogin,
@@ -391,7 +418,8 @@ const AppDataProvider = ({ children }) => {
     fetchEmails,
     fetchEmailById,
     sendEmail,
-    
+    markEmailAsRead,
+
     // Utilities
     syncStatus,
     clearAllData,
@@ -1697,12 +1725,12 @@ const EmailItem = ({ email, onSelect, isSelected }) => (
 );
 
 // Email Viewer Modal
-const EmailViewerModal = ({ email, fullEmail, isLoading, error, onClose, onReply }) => {
+const EmailViewerModal = ({ email, fullEmail, isLoading, error, onClose, onReply, onMarkAsRead }) => {
   if (!email) return null;
-  
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
-      <div 
+      <div
         className="bg-white w-full max-w-2xl rounded-t-2xl sm:rounded-2xl max-h-[90vh] overflow-hidden flex flex-col"
         onClick={e => e.stopPropagation()}
       >
@@ -1721,13 +1749,13 @@ const EmailViewerModal = ({ email, fullEmail, isLoading, error, onClose, onReply
             <X className="w-5 h-5 text-gray-500" />
           </button>
         </div>
-        
+
         {/* Subject & Date */}
         <div className="px-4 py-3 border-b border-gray-100 flex-shrink-0">
           <h2 className="font-semibold text-gray-900 text-lg">{email.subject}</h2>
           <p className="text-sm text-gray-500 mt-1">{fullEmail?.date || email.time}</p>
         </div>
-        
+
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4">
           {isLoading ? (
@@ -1740,7 +1768,7 @@ const EmailViewerModal = ({ email, fullEmail, isLoading, error, onClose, onReply
               <p className="text-gray-600">{error}</p>
             </div>
           ) : fullEmail?.isHtml ? (
-            <div 
+            <div
               className="prose prose-sm max-w-none"
               dangerouslySetInnerHTML={{ __html: fullEmail.body }}
             />
@@ -1750,16 +1778,25 @@ const EmailViewerModal = ({ email, fullEmail, isLoading, error, onClose, onReply
             </div>
           )}
         </div>
-        
+
         {/* Actions */}
         <div className="p-4 border-t border-gray-100 flex gap-3 flex-shrink-0">
-          <button 
+          <button
             onClick={() => onReply && onReply(email)}
             className="flex-1 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-blue-500 to-indigo-500 rounded-xl hover:opacity-90 flex items-center justify-center gap-2"
           >
             <Reply className="w-4 h-4" />
             Reply
           </button>
+          {!email.read && (
+            <button
+              onClick={() => onMarkAsRead && onMarkAsRead(email)}
+              className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 flex items-center justify-center gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              Mark Read
+            </button>
+          )}
           <button className="px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 flex items-center justify-center gap-2">
             <Forward className="w-4 h-4" />
             Forward
@@ -2136,7 +2173,7 @@ const ChatInterface = ({ agentName, agentColor, messages, onSendMessage, placeho
 // ============================================
 
 const PersonalAssistantView = () => {
-  const { personalAssistant, updatePersonalAssistant, healthCoach, googleAuth, googleLogin, googleLogout, fetchCalendarEvents, fetchEmails, fetchEmailById, sendEmail } = useAppData();
+  const { personalAssistant, updatePersonalAssistant, healthCoach, googleAuth, googleLogin, googleLogout, fetchCalendarEvents, fetchEmails, fetchEmailById, sendEmail, markEmailAsRead } = useAppData();
   
   const [activeTab, setActiveTab] = useState('overview');
   const [showPreferences, setShowPreferences] = useState(false);
@@ -2194,7 +2231,7 @@ const PersonalAssistantView = () => {
     setIsSendingEmail(true);
     const result = await sendEmail(to, subject, body, threadId);
     setIsSendingEmail(false);
-    
+
     if (result.success) {
       setToast({ message: 'Email sent!', type: 'success' });
       setShowCompose(false);
@@ -2203,7 +2240,30 @@ const PersonalAssistantView = () => {
     
     return result;
   };
-  
+
+  // Handle mark email as read
+  const handleMarkAsRead = async (email) => {
+    const result = await markEmailAsRead(email.id);
+
+    if (result.success) {
+      setToast({ message: 'Email marked as read', type: 'success' });
+
+      // Update the email in the local state
+      setEmails(prevEmails =>
+        prevEmails.map(e =>
+          e.id === email.id ? { ...e, read: true } : e
+        )
+      );
+
+      // Update selectedEmail if it's the current one
+      if (selectedEmail?.id === email.id) {
+        setSelectedEmail({ ...selectedEmail, read: true });
+      }
+    } else {
+      setToast({ message: result.error || 'Failed to mark email as read', type: 'error' });
+    }
+  };
+
   // Handle new email
   const handleNewEmail = () => {
     setReplyToEmail(null);
@@ -2705,6 +2765,7 @@ const PersonalAssistantView = () => {
           error={emailError}
           onClose={handleCloseEmailViewer}
           onReply={handleReply}
+          onMarkAsRead={handleMarkAsRead}
         />
       )}
       
